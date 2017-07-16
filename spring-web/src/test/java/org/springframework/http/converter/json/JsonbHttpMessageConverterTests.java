@@ -17,7 +17,6 @@
 package org.springframework.http.converter.json;
 
 import java.io.IOException;
-import java.lang.reflect.Field;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -25,6 +24,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.junit.Ignore;
 import org.junit.Test;
 
 import org.springframework.core.ParameterizedTypeReference;
@@ -36,13 +36,12 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import static org.junit.Assert.*;
 
 /**
- * Gson 2.x converter tests.
- *
- * @author Roy Clarkson
+ * @author Juergen Hoeller
  */
-public class GsonHttpMessageConverterTests {
+@Ignore  // until we are able to include Eclipse Yasson (the JSONB RI) in our build setup
+public class JsonbHttpMessageConverterTests {
 
-	private final GsonHttpMessageConverter converter = new GsonHttpMessageConverter();
+	private final JsonbHttpMessageConverter converter = new JsonbHttpMessageConverter();
 
 
 	@Test
@@ -148,28 +147,7 @@ public class GsonHttpMessageConverterTests {
 
 	@Test
 	@SuppressWarnings("unchecked")
-	public void readGenerics() throws Exception {
-		Field beansList = ListHolder.class.getField("listField");
-
-		String body = "[{\"bytes\":[1,2],\"array\":[\"Foo\",\"Bar\"]," +
-				"\"number\":42,\"string\":\"Foo\",\"bool\":true,\"fraction\":42.0}]";
-		MockHttpInputMessage inputMessage = new MockHttpInputMessage(body.getBytes(StandardCharsets.UTF_8));
-		inputMessage.getHeaders().setContentType(new MediaType("application", "json"));
-
-		List<MyBean> results = (List<MyBean>) converter.read(beansList.getGenericType(), MyBeanListHolder.class, inputMessage);
-		assertEquals(1, results.size());
-		MyBean result = results.get(0);
-		assertEquals("Foo", result.getString());
-		assertEquals(42, result.getNumber());
-		assertEquals(42F, result.getFraction(), 0F);
-		assertArrayEquals(new String[] { "Foo", "Bar" }, result.getArray());
-		assertTrue(result.isBool());
-		assertArrayEquals(new byte[] { 0x1, 0x2 }, result.getBytes());
-	}
-
-	@Test
-	@SuppressWarnings("unchecked")
-	public void readParameterizedType() throws Exception {
+	public void readParameterizedType() throws IOException {
 		ParameterizedTypeReference<List<MyBean>> beansList = new ParameterizedTypeReference<List<MyBean>>() {
 		};
 
@@ -187,22 +165,6 @@ public class GsonHttpMessageConverterTests {
 		assertArrayEquals(new String[] { "Foo", "Bar" }, result.getArray());
 		assertTrue(result.isBool());
 		assertArrayEquals(new byte[] {0x1, 0x2}, result.getBytes());
-	}
-
-	@Test
-	public void prefixJson() throws Exception {
-		MockHttpOutputMessage outputMessage = new MockHttpOutputMessage();
-		this.converter.setPrefixJson(true);
-		this.converter.writeInternal("foo", null, outputMessage);
-		assertEquals(")]}', \"foo\"", outputMessage.getBodyAsString(StandardCharsets.UTF_8));
-	}
-
-	@Test
-	public void prefixJsonCustom() throws Exception {
-		MockHttpOutputMessage outputMessage = new MockHttpOutputMessage();
-		this.converter.setJsonPrefix(")))");
-		this.converter.writeInternal("foo", null, outputMessage);
-		assertEquals(")))\"foo\"", outputMessage.getBodyAsString(StandardCharsets.UTF_8));
 	}
 
 
@@ -267,16 +229,6 @@ public class GsonHttpMessageConverterTests {
 		public void setArray(String[] array) {
 			this.array = array;
 		}
-	}
-
-
-	public static class ListHolder<E> {
-
-		public List<E> listField;
-	}
-
-
-	public static class MyBeanListHolder extends ListHolder<MyBean> {
 	}
 
 }
