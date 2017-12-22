@@ -21,11 +21,13 @@ import java.lang.annotation.Annotation;
 import java.lang.reflect.Constructor;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.MonoProcessor;
 
 import org.springframework.beans.BeanUtils;
+import org.springframework.core.Conventions;
 import org.springframework.core.DefaultParameterNameDiscoverer;
 import org.springframework.core.MethodParameter;
 import org.springframework.core.ParameterNameDiscoverer;
@@ -33,6 +35,8 @@ import org.springframework.core.ReactiveAdapter;
 import org.springframework.core.ReactiveAdapterRegistry;
 import org.springframework.core.ResolvableType;
 import org.springframework.core.annotation.AnnotationUtils;
+import org.springframework.lang.Nullable;
+import org.springframework.ui.Model;
 import org.springframework.util.Assert;
 import org.springframework.util.ClassUtils;
 import org.springframework.util.StringUtils;
@@ -103,21 +107,22 @@ public class ModelAttributeMethodArgumentResolver extends HandlerMethodArgumentR
 			MethodParameter parameter, BindingContext context, ServerWebExchange exchange) {
 
 		ResolvableType type = ResolvableType.forMethodParameter(parameter);
-		ReactiveAdapter adapter = getAdapterRegistry().getAdapter(type.resolve());
-		ResolvableType valueType = (adapter != null ? type.getGeneric(0) : type);
+		Class<?> resolvedType = type.resolve();
+		ReactiveAdapter adapter = (resolvedType != null ? getAdapterRegistry().getAdapter(resolvedType) : null);
+		ResolvableType valueType = (adapter != null ? type.getGeneric() : type);
 
 		Assert.state(adapter == null || !adapter.isMultiValue(),
 				() -> getClass().getSimpleName() + " doesn't support multi-value reactive type wrapper: " +
 						parameter.getGenericParameterType());
 
-		String name = getAttributeName(valueType, parameter);
-		Mono<?> valueMono = getAttributeMono(name, valueType, context, exchange);
+		String name = getAttributeName(parameter);
+		Mono<?> valueMono = prepareAttributeMono(name, valueType, context, exchange);
 
 		Map<String, Object> model = context.getModel().asMap();
 		MonoProcessor<BindingResult> bindingResultMono = MonoProcessor.create();
 		model.put(BindingResult.MODEL_KEY_PREFIX + name, bindingResultMono);
 
-		return valueMono.then(value -> {
+		return valueMono.flatMap(value -> {
 			WebExchangeDataBinder binder = context.createDataBinder(exchange, value, name);
 			return binder.bind(exchange)
 					.doOnError(bindingResultMono::onError)
@@ -145,21 +150,26 @@ public class ModelAttributeMethodArgumentResolver extends HandlerMethodArgumentR
 		});
 	}
 
-	private String getAttributeName(ResolvableType valueType, MethodParameter parameter) {
-		ModelAttribute ann = parameter.getParameterAnnotation(ModelAttribute.class);
-		if (ann != null && StringUtils.hasText(ann.value())) {
-			return ann.value();
-		}
-		// TODO: Conventions does not deal with async wrappers
-		return ClassUtils.getShortNameAsProperty(valueType.getRawClass());
+	private String getAttributeName(MethodParameter parameter) {
+		return Optional.ofNullable(parameter.getParameterAnnotation(ModelAttribute.class))
+				.filter(ann -> StringUtils.hasText(ann.value()))
+				.map(ModelAttribute::value)
+				.orElse(Conventions.getVariableNameForParameter(parameter));
 	}
 
-	private Mono<?> getAttributeMono(
-			String attributeName, ResolvableType attributeType, BindingContext context, ServerWebExchange exchange) {
+	private Mono<?> prepareAttributeMono(String attributeName, ResolvableType attributeType,
+			BindingContext context, ServerWebExchange exchange) {
 
 		Object attribute = context.getModel().asMap().get(attributeName);
+
 		if (attribute == null) {
-			return createAttribute(attributeName, attributeType.getRawClass(), context, exchange);
+			attribute = findAndRemoveReactiveAttribute(context.getModel(), attributeName);
+		}
+
+		if (attribute == null) {
+			Class<?> attributeClass = attributeType.getRawClass();
+			Assert.state(attributeClass != null, "No attribute class");
+			return createAttribute(attributeName,attributeClass , context, exchange);
 		}
 
 		ReactiveAdapter adapterFrom = getAdapterRegistry().getAdapter(null, attribute);
@@ -170,6 +180,29 @@ public class ModelAttributeMethodArgumentResolver extends HandlerMethodArgumentR
 		else {
 			return Mono.justOrEmpty(attribute);
 		}
+	}
+
+	@Nullable
+	private Object findAndRemoveReactiveAttribute(Model model, String attributeName) {
+		return model.asMap().entrySet().stream()
+				.filter(entry -> {
+					if (!entry.getKey().startsWith(attributeName)) {
+						return false;
+					}
+					ReactiveAdapter adapter = getAdapterRegistry().getAdapter(null, entry.getValue());
+					if (adapter == null) {
+						return false;
+					}
+					String name = attributeName + ClassUtils.getShortName(adapter.getReactiveType());
+					return entry.getKey().equals(name);
+				})
+				.findFirst()
+				.map(entry -> {
+					// Remove since we will be re-inserting the resolved attribute value
+					model.asMap().remove(entry.getKey());
+					return entry.getValue();
+				})
+				.orElse(null);
 	}
 
 	private Mono<?> createAttribute(
@@ -188,7 +221,7 @@ public class ModelAttributeMethodArgumentResolver extends HandlerMethodArgumentR
 		}
 
 		// A single data class constructor -> resolve constructor arguments from request parameters.
-		return exchange.getRequestParams().then(requestParams -> {
+		return WebExchangeDataBinder.extractValuesToBind(exchange).map(bindValues -> {
 			ConstructorProperties cp = ctor.getAnnotation(ConstructorProperties.class);
 			String[] paramNames = (cp != null ? cp.value() : parameterNameDiscoverer.getParameterNames(ctor));
 			Assert.state(paramNames != null, () -> "Cannot resolve parameter names for constructor " + ctor);
@@ -198,22 +231,18 @@ public class ModelAttributeMethodArgumentResolver extends HandlerMethodArgumentR
 			Object[] args = new Object[paramTypes.length];
 			WebDataBinder binder = context.createDataBinder(exchange, null, attributeName);
 			for (int i = 0; i < paramNames.length; i++) {
-				List<String> paramValues = requestParams.get(paramNames[i]);
-				Object paramValue = null;
-				if (paramValues != null) {
-					paramValue = (paramValues.size() == 1 ? paramValues.get(0) :
-							paramValues.toArray(new String[paramValues.size()]));
-				}
-				args[i] = binder.convertIfNecessary(paramValue, paramTypes[i], new MethodParameter(ctor, i));
+				Object value = bindValues.get(paramNames[i]);
+				value = (value != null && value instanceof List ? ((List<?>) value).toArray() : value);
+				args[i] = binder.convertIfNecessary(value, paramTypes[i], new MethodParameter(ctor, i));
 			}
-			return Mono.fromSupplier(() -> BeanUtils.instantiateClass(ctor, args));
+			return BeanUtils.instantiateClass(ctor, args);
 		});
 	}
 
 	private boolean hasErrorsArgument(MethodParameter parameter) {
 		int i = parameter.getParameterIndex();
-		Class<?>[] paramTypes = parameter.getMethod().getParameterTypes();
-		return (paramTypes.length > i && Errors.class.isAssignableFrom(paramTypes[i + 1]));
+		Class<?>[] paramTypes = parameter.getExecutable().getParameterTypes();
+		return (paramTypes.length > i + 1 && Errors.class.isAssignableFrom(paramTypes[i + 1]));
 	}
 
 	private void validateIfApplicable(WebExchangeDataBinder binder, MethodParameter parameter) {

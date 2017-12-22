@@ -29,6 +29,7 @@ import java.util.concurrent.CompletableFuture;
 
 import org.junit.Before;
 import org.junit.Test;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 import rx.Completable;
@@ -43,8 +44,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.codec.EncoderHttpMessageWriter;
-import org.springframework.http.codec.ResourceHttpMessageWriter;
 import org.springframework.http.codec.HttpMessageWriter;
+import org.springframework.http.codec.ResourceHttpMessageWriter;
 import org.springframework.http.codec.json.Jackson2JsonEncoder;
 import org.springframework.http.codec.xml.Jaxb2XmlEncoder;
 import org.springframework.mock.http.server.reactive.test.MockServerWebExchange;
@@ -119,6 +120,11 @@ public class ResponseEntityResultHandlerTests {
 
 		returnType = on(TestController.class).resolveReturnType(CompletableFuture.class, entity(String.class));
 		assertTrue(this.resultHandler.supports(handlerResult(value, returnType)));
+
+		// SPR-15785
+		value = ResponseEntity.ok("testing");
+		returnType = on(TestController.class).resolveReturnType(Object.class);
+		assertTrue(this.resultHandler.supports(handlerResult(value, returnType)));
 	}
 
 	@Test
@@ -131,6 +137,10 @@ public class ResponseEntityResultHandlerTests {
 		assertFalse(this.resultHandler.supports(handlerResult(value, returnType)));
 
 		returnType = on(TestController.class).resolveReturnType(Completable.class);
+		assertFalse(this.resultHandler.supports(handlerResult(value, returnType)));
+
+		// SPR-15464
+		returnType = on(TestController.class).resolveReturnType(Flux.class);
 		assertFalse(this.resultHandler.supports(handlerResult(value, returnType)));
 	}
 
@@ -183,6 +193,9 @@ public class ResponseEntityResultHandlerTests {
 	public void handleReturnTypes() throws Exception {
 		Object returnValue = ok("abc");
 		MethodParameter returnType = on(TestController.class).resolveReturnType(entity(String.class));
+		testHandle(returnValue, returnType);
+
+		returnType = on(TestController.class).resolveReturnType(Object.class);
 		testHandle(returnValue, returnType);
 
 		returnValue = Mono.just(ok("abc"));
@@ -291,7 +304,7 @@ public class ResponseEntityResultHandlerTests {
 		this.resultHandler.handleResult(exchange, result).block(Duration.ofSeconds(5));
 
 		assertEquals(HttpStatus.OK, exchange.getResponse().getStatusCode());
-		assertResponseBody(exchange, "\"body\"");
+		assertResponseBody(exchange, "body");
 	}
 
 	@Test // SPR-14877
@@ -380,6 +393,10 @@ public class ResponseEntityResultHandlerTests {
 		Completable completable() { return null; }
 
 		Mono<ResponseEntity<?>> monoResponseEntityWildcard() { return null; }
+
+		Flux<?> fluxWildcard() { return null; }
+
+		Object object() { return null; }
 
 	}
 

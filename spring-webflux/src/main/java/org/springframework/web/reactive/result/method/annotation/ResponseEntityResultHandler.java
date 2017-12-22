@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2017 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.springframework.web.reactive.result.method.annotation;
 
 import java.time.Instant;
@@ -24,13 +25,13 @@ import reactor.core.publisher.Mono;
 import org.springframework.core.MethodParameter;
 import org.springframework.core.ReactiveAdapter;
 import org.springframework.core.ReactiveAdapterRegistry;
-import org.springframework.core.ResolvableType;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.RequestEntity;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.codec.HttpMessageWriter;
+import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 import org.springframework.web.reactive.HandlerResult;
 import org.springframework.web.reactive.HandlerResultHandler;
@@ -79,17 +80,28 @@ public class ResponseEntityResultHandler extends AbstractMessageWriterResultHand
 
 	@Override
 	public boolean supports(HandlerResult result) {
-		if (isSupportedType(result.getReturnType())) {
+		Class<?> valueType = resolveReturnValueType(result);
+		if (isSupportedType(valueType)) {
 			return true;
 		}
 		ReactiveAdapter adapter = getAdapter(result);
 		return adapter != null && !adapter.isNoValue() &&
-				isSupportedType(result.getReturnType().getGeneric(0));
+				isSupportedType(result.getReturnType().getGeneric().resolve(Object.class));
 	}
 
-	private boolean isSupportedType(ResolvableType type) {
-		Class<?> clazz = type.getRawClass();
-		return (HttpEntity.class.isAssignableFrom(clazz) && !RequestEntity.class.isAssignableFrom(clazz));
+	@Nullable
+	private static Class<?> resolveReturnValueType(HandlerResult result) {
+		Class<?> valueType = result.getReturnType().getRawClass();
+		Object value = result.getReturnValue();
+		if ((valueType == null || valueType.equals(Object.class)) && value != null) {
+			valueType = value.getClass();
+		}
+		return valueType;
+	}
+
+	private boolean isSupportedType(@Nullable Class<?> clazz) {
+		return (clazz != null && HttpEntity.class.isAssignableFrom(clazz) &&
+				!RequestEntity.class.isAssignableFrom(clazz));
 	}
 
 
@@ -110,7 +122,7 @@ public class ResponseEntityResultHandler extends AbstractMessageWriterResultHand
 			bodyParameter = result.getReturnTypeSource().nested();
 		}
 
-		return returnValueMono.then(returnValue -> {
+		return returnValueMono.flatMap(returnValue -> {
 			Assert.isInstanceOf(HttpEntity.class, returnValue, "HttpEntity expected");
 			HttpEntity<?> httpEntity = (HttpEntity<?>) returnValue;
 

@@ -19,15 +19,9 @@ package org.springframework.web.reactive.function.client;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.function.Supplier;
-import java.util.stream.Stream;
+import java.util.function.Consumer;
 
-import org.springframework.context.ApplicationContext;
-import org.springframework.core.codec.Decoder;
-import org.springframework.core.codec.Encoder;
 import org.springframework.http.codec.ClientCodecConfigurer;
-import org.springframework.http.codec.DecoderHttpMessageReader;
-import org.springframework.http.codec.EncoderHttpMessageWriter;
 import org.springframework.http.codec.HttpMessageReader;
 import org.springframework.http.codec.HttpMessageWriter;
 import org.springframework.util.Assert;
@@ -40,51 +34,28 @@ import org.springframework.util.Assert;
  */
 class DefaultExchangeStrategiesBuilder implements ExchangeStrategies.Builder {
 
-	private final List<HttpMessageReader<?>> messageReaders = new ArrayList<>();
+	private final ClientCodecConfigurer codecConfigurer = ClientCodecConfigurer.create();
 
-	private final List<HttpMessageWriter<?>> messageWriters = new ArrayList<>();
 
+	public DefaultExchangeStrategiesBuilder() {
+		this.codecConfigurer.registerDefaults(false);
+	}
 
 	public void defaultConfiguration() {
-		ClientCodecConfigurer configurer = new ClientCodecConfigurer();
-		configurer.getReaders().forEach(this::messageReader);
-		configurer.getWriters().forEach(this::messageWriter);
-	}
-
-	public void applicationContext(ApplicationContext applicationContext) {
-		applicationContext.getBeansOfType(HttpMessageReader.class).values().forEach(this::messageReader);
-		applicationContext.getBeansOfType(HttpMessageWriter.class).values().forEach(this::messageWriter);
+		this.codecConfigurer.registerDefaults(true);
 	}
 
 	@Override
-	public ExchangeStrategies.Builder messageReader(HttpMessageReader<?> messageReader) {
-		Assert.notNull(messageReader, "'messageReader' must not be null");
-		this.messageReaders.add(messageReader);
+	public ExchangeStrategies.Builder codecs(Consumer<ClientCodecConfigurer> consumer) {
+		Assert.notNull(consumer, "'consumer' must not be null");
+		consumer.accept(this.codecConfigurer);
 		return this;
-	}
-
-	@Override
-	public ExchangeStrategies.Builder decoder(Decoder<?> decoder) {
-		Assert.notNull(decoder, "'decoder' must not be null");
-		return messageReader(new DecoderHttpMessageReader<>(decoder));
-	}
-
-	@Override
-	public ExchangeStrategies.Builder messageWriter(HttpMessageWriter<?> messageWriter) {
-		Assert.notNull(messageWriter, "'messageWriter' must not be null");
-		this.messageWriters.add(messageWriter);
-		return this;
-	}
-
-	@Override
-	public ExchangeStrategies.Builder encoder(Encoder<?> encoder) {
-		Assert.notNull(encoder, "'encoder' must not be null");
-		return messageWriter(new EncoderHttpMessageWriter<>(encoder));
 	}
 
 	@Override
 	public ExchangeStrategies build() {
-		return new DefaultExchangeStrategies(this.messageReaders, this.messageWriters);
+		return new DefaultExchangeStrategies(this.codecConfigurer.getReaders(),
+				this.codecConfigurer.getWriters());
 	}
 
 
@@ -106,13 +77,13 @@ class DefaultExchangeStrategiesBuilder implements ExchangeStrategies.Builder {
 		}
 
 		@Override
-		public Supplier<Stream<HttpMessageReader<?>>> messageReaders() {
-			return this.messageReaders::stream;
+		public List<HttpMessageReader<?>> messageReaders() {
+			return this.messageReaders;
 		}
 
 		@Override
-		public Supplier<Stream<HttpMessageWriter<?>>> messageWriters() {
-			return this.messageWriters::stream;
+		public List<HttpMessageWriter<?>> messageWriters() {
+			return this.messageWriters;
 		}
 	}
 

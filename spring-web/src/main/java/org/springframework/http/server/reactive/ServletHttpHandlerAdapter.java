@@ -36,6 +36,7 @@ import org.reactivestreams.Subscription;
 
 import org.springframework.core.io.buffer.DataBufferFactory;
 import org.springframework.core.io.buffer.DefaultDataBufferFactory;
+import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 
 /**
@@ -104,45 +105,25 @@ public class ServletHttpHandlerAdapter implements Servlet {
 	public void service(ServletRequest request, ServletResponse response) throws IOException {
 		// Start async before Read/WriteListener registration
 		AsyncContext asyncContext = request.startAsync();
+		asyncContext.setTimeout(-1);
 
 		ServerHttpRequest httpRequest = createRequest(((HttpServletRequest) request), asyncContext);
 		ServerHttpResponse httpResponse = createResponse(((HttpServletResponse) response), asyncContext);
 
-		asyncContext.addListener(TIMEOUT_HANDLER);
+		asyncContext.addListener(ERROR_LISTENER);
 
 		HandlerResultSubscriber subscriber = new HandlerResultSubscriber(asyncContext);
 		this.httpHandler.handle(httpRequest, httpResponse).subscribe(subscriber);
 	}
 
-	protected ServerHttpRequest createRequest(HttpServletRequest request,
-			AsyncContext context) throws IOException {
-
+	protected ServerHttpRequest createRequest(HttpServletRequest request, AsyncContext context) throws IOException {
 		return new ServletServerHttpRequest(
 				request, context, getDataBufferFactory(), getBufferSize());
 	}
 
-	protected ServerHttpResponse createResponse(HttpServletResponse response,
-			AsyncContext context) throws IOException {
-
+	protected ServerHttpResponse createResponse(HttpServletResponse response, AsyncContext context) throws IOException {
 		return new ServletServerHttpResponse(
 				response, context, getDataBufferFactory(), getBufferSize());
-	}
-
-	/**
-	 * We cannot combine TIMEOUT_HANDLER and HandlerResultSubscriber due to:
-	 * https://issues.jboss.org/browse/WFLY-8515
-	 */
-	private static void runIfAsyncNotComplete(AsyncContext asyncContext, Runnable task) {
-		try {
-			if (asyncContext.getRequest().isAsyncStarted()) {
-				task.run();
-			}
-		}
-		catch (IllegalStateException ex) {
-			// Ignore:
-			// AsyncContext recycled and should not be used
-			// e.g. TIMEOUT_LISTENER (above) may have completed the AsyncContext
-		}
 	}
 
 
@@ -153,6 +134,7 @@ public class ServletHttpHandlerAdapter implements Servlet {
 	}
 
 	@Override
+	@Nullable
 	public ServletConfig getServletConfig() {
 		return null;
 	}
@@ -167,7 +149,24 @@ public class ServletHttpHandlerAdapter implements Servlet {
 	}
 
 
-	private final static AsyncListener TIMEOUT_HANDLER = new AsyncListener() {
+	/**
+	 * We cannot combine ERROR_LISTENER and HandlerResultSubscriber due to:
+	 * https://issues.jboss.org/browse/WFLY-8515
+	 */
+	private static void runIfAsyncNotComplete(AsyncContext asyncContext, Runnable task) {
+		try {
+			if (asyncContext.getRequest().isAsyncStarted()) {
+				task.run();
+			}
+		}
+		catch (IllegalStateException ex) {
+			// Ignore: AsyncContext recycled and should not be used
+			// e.g. TIMEOUT_LISTENER (above) may have completed the AsyncContext
+		}
+	}
+
+
+	private final static AsyncListener ERROR_LISTENER = new AsyncListener() {
 
 		@Override
 		public void onTimeout(AsyncEvent event) throws IOException {
@@ -192,15 +191,14 @@ public class ServletHttpHandlerAdapter implements Servlet {
 		}
 	};
 
+
 	private class HandlerResultSubscriber implements Subscriber<Void> {
 
 		private final AsyncContext asyncContext;
 
-
 		HandlerResultSubscriber(AsyncContext asyncContext) {
 			this.asyncContext = asyncContext;
 		}
-
 
 		@Override
 		public void onSubscribe(Subscription subscription) {

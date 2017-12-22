@@ -62,7 +62,6 @@ import org.springframework.util.Assert;
 import org.springframework.util.LinkedCaseInsensitiveMap;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.springframework.util.ObjectUtils;
 import org.springframework.util.StreamUtils;
 import org.springframework.util.StringUtils;
 
@@ -217,8 +216,6 @@ public class MockHttpServletRequest implements HttpServletRequest {
 	private String authType;
 
 	private Cookie[] cookies;
-
-	private boolean cookieHeaderSet;
 
 	private final Map<String, HeaderValueHolder> headers = new LinkedCaseInsensitiveMap<>();
 
@@ -740,6 +737,7 @@ public class MockHttpServletRequest implements HttpServletRequest {
 	public void addPreferredLocale(Locale locale) {
 		Assert.notNull(locale, "Locale must not be null");
 		this.locales.add(0, locale);
+		updateAcceptLanguageHeader();
 	}
 
 	/**
@@ -752,6 +750,13 @@ public class MockHttpServletRequest implements HttpServletRequest {
 		Assert.notEmpty(locales, "Locale list must not be empty");
 		this.locales.clear();
 		this.locales.addAll(locales);
+		updateAcceptLanguageHeader();
+	}
+
+	private void updateAcceptLanguageHeader() {
+		HttpHeaders headers = new HttpHeaders();
+		headers.setAcceptLanguageAsLocales(this.locales);
+		doAddHeaderValue(HttpHeaders.ACCEPT_LANGUAGE, headers.getFirst(HttpHeaders.ACCEPT_LANGUAGE), true);
 	}
 
 	/**
@@ -923,7 +928,8 @@ public class MockHttpServletRequest implements HttpServletRequest {
 
 	public void setCookies(Cookie... cookies) {
 		this.cookies = cookies;
-		if (!this.cookieHeaderSet && !ObjectUtils.isEmpty(cookies)) {
+		this.headers.remove(HttpHeaders.COOKIE);
+		if (cookies != null) {
 			Arrays.stream(cookies)
 					.map(c -> c.getName() + '=' + (c.getValue() == null ? "" : c.getValue()))
 					.forEach(value -> doAddHeaderValue(HttpHeaders.COOKIE, value, false));
@@ -951,11 +957,19 @@ public class MockHttpServletRequest implements HttpServletRequest {
 	 * @see #getDateHeader
 	 */
 	public void addHeader(String name, Object value) {
-		if (HttpHeaders.CONTENT_TYPE.equalsIgnoreCase(name) && !this.headers.containsKey(HttpHeaders.CONTENT_TYPE)) {
+		if (HttpHeaders.CONTENT_TYPE.equalsIgnoreCase(name) &&
+				!this.headers.containsKey(HttpHeaders.CONTENT_TYPE)) {
+
 			setContentType(value.toString());
 		}
+		else if (HttpHeaders.ACCEPT_LANGUAGE.equalsIgnoreCase(name) &&
+				!this.headers.containsKey(HttpHeaders.ACCEPT_LANGUAGE)) {
+
+			HttpHeaders headers = new HttpHeaders();
+			headers.add(HttpHeaders.ACCEPT_LANGUAGE, value.toString());
+			setPreferredLocales(headers.getAcceptLanguageAsLocales());
+		}
 		else {
-			this.cookieHeaderSet = HttpHeaders.COOKIE.equalsIgnoreCase(name);
 			doAddHeaderValue(name, value, false);
 		}
 	}

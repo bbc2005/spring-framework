@@ -23,16 +23,16 @@ import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.io.UnsupportedEncodingException;
 import java.io.Writer;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.TimeZone;
 import javax.servlet.ServletOutputStream;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletResponse;
@@ -43,6 +43,8 @@ import org.springframework.util.Assert;
 import org.springframework.util.LinkedCaseInsensitiveMap;
 import org.springframework.util.StringUtils;
 import org.springframework.web.util.WebUtils;
+
+import static java.time.format.DateTimeFormatter.*;
 
 /**
  * Mock implementation of the {@link javax.servlet.http.HttpServletResponse} interface.
@@ -58,9 +60,7 @@ public class MockHttpServletResponse implements HttpServletResponse {
 
 	private static final String CHARSET_PREFIX = "charset=";
 
-	private static final String DATE_FORMAT = "EEE, dd MMM yyyy HH:mm:ss zzz";
-
-	private static final TimeZone GMT = TimeZone.getTimeZone("GMT");
+	private static final ZoneId GMT = ZoneId.of("GMT");
 
 
 	//---------------------------------------------------------------------
@@ -97,8 +97,6 @@ public class MockHttpServletResponse implements HttpServletResponse {
 	//---------------------------------------------------------------------
 
 	private final List<Cookie> cookies = new ArrayList<>();
-
-	private boolean cookieHeaderSet;
 
 	private final Map<String, HeaderValueHolder> headers = new LinkedCaseInsensitiveMap<>();
 
@@ -304,6 +302,9 @@ public class MockHttpServletResponse implements HttpServletResponse {
 	@Override
 	public void setLocale(Locale locale) {
 		this.locale = locale;
+		if (locale != null) {
+			doAddHeaderValue(HttpHeaders.ACCEPT_LANGUAGE, locale.toLanguageTag(), true);
+		}
 	}
 
 	@Override
@@ -320,34 +321,32 @@ public class MockHttpServletResponse implements HttpServletResponse {
 	public void addCookie(Cookie cookie) {
 		Assert.notNull(cookie, "Cookie must not be null");
 		this.cookies.add(cookie);
-		if (!this.cookieHeaderSet) {
-			doAddHeaderValue(HttpHeaders.SET_COOKIE, getCookieHeader(cookie), false);
-		}
+		doAddHeaderValue(HttpHeaders.SET_COOKIE, getCookieHeader(cookie), false);
 	}
 
 	private String getCookieHeader(Cookie cookie) {
 		StringBuilder buf = new StringBuilder();
 		buf.append(cookie.getName()).append('=').append(cookie.getValue() == null ? "" : cookie.getValue());
 		if (StringUtils.hasText(cookie.getPath())) {
-			buf.append(";Path=").append(cookie.getPath());
+			buf.append("; Path=").append(cookie.getPath());
 		}
 		if (StringUtils.hasText(cookie.getDomain())) {
-			buf.append(";Domain=").append(cookie.getDomain());
+			buf.append("; Domain=").append(cookie.getDomain());
 		}
 		int maxAge = cookie.getMaxAge();
 		if (maxAge >= 0) {
-			buf.append(";Max-Age=").append(maxAge);
-			buf.append(";Expires=");
+			buf.append("; Max-Age=").append(maxAge);
+			buf.append("; Expires=");
 			HttpHeaders headers = new HttpHeaders();
 			headers.setExpires(maxAge > 0 ? System.currentTimeMillis() + 1000L * maxAge : 0);
 			buf.append(headers.getFirst(HttpHeaders.EXPIRES));
 		}
 
 		if (cookie.getSecure()) {
-			buf.append(";Secure");
+			buf.append("; Secure");
 		}
 		if (cookie.isHttpOnly()) {
-			buf.append(";HttpOnly");
+			buf.append("; HttpOnly");
 		}
 		return buf.toString();
 	}
@@ -509,12 +508,10 @@ public class MockHttpServletResponse implements HttpServletResponse {
 	}
 
 	public long getDateHeader(String name) {
-		SimpleDateFormat dateFormat = new SimpleDateFormat(DATE_FORMAT, Locale.US);
-		dateFormat.setTimeZone(GMT);
 		try {
-			return dateFormat.parse(getHeader(name)).getTime();
+			return ZonedDateTime.parse(getHeader(name), RFC_1123_DATE_TIME).toInstant().toEpochMilli();
 		}
-		catch (ParseException ex) {
+		catch (DateTimeParseException ex) {
 			throw new IllegalArgumentException(
 					"Value for header '" + name + "' is not a valid Date: " + getHeader(name));
 		}
@@ -526,20 +523,18 @@ public class MockHttpServletResponse implements HttpServletResponse {
 	}
 
 	private String formatDate(long date) {
-		SimpleDateFormat dateFormat = new SimpleDateFormat(DATE_FORMAT, Locale.US);
-		dateFormat.setTimeZone(GMT);
-		return dateFormat.format(new Date(date));
+		Instant instant = Instant.ofEpochMilli(date);
+		ZonedDateTime zonedDateTime = ZonedDateTime.ofInstant(instant, GMT);
+		return RFC_1123_DATE_TIME.format(zonedDateTime);
 	}
 
 	@Override
 	public void setHeader(String name, String value) {
-		this.cookieHeaderSet = HttpHeaders.SET_COOKIE.equalsIgnoreCase(name);
 		setHeaderValue(name, value);
 	}
 
 	@Override
 	public void addHeader(String name, String value) {
-		this.cookieHeaderSet = HttpHeaders.SET_COOKIE.equalsIgnoreCase(name);
 		addHeaderValue(name, value);
 	}
 
@@ -575,6 +570,13 @@ public class MockHttpServletResponse implements HttpServletResponse {
 		else if (HttpHeaders.CONTENT_LENGTH.equalsIgnoreCase(name)) {
 			setContentLength(value instanceof Number ? ((Number) value).intValue() :
 					Integer.parseInt(value.toString()));
+			return true;
+		}
+		else if (HttpHeaders.ACCEPT_LANGUAGE.equalsIgnoreCase(name)) {
+			HttpHeaders headers = new HttpHeaders();
+			headers.add(HttpHeaders.ACCEPT_LANGUAGE, value.toString());
+			List<Locale> locales = headers.getAcceptLanguageAsLocales();
+			setLocale(locales.isEmpty() ? null : locales.get(0));
 			return true;
 		}
 		else {

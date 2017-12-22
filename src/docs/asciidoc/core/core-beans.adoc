@@ -5864,12 +5864,12 @@ metadata is provided per-instance rather than per-class.
 
 
 [[beans-scanning-index]]
-=== Generating a index of candidate components
-Rather than scanning the classpath to find components, it is also possible to generate an
-index at compilation time. When the `ApplicationContext` detects such index it will
-automatically use it rather than scanning the classpath. This can reduce the time required
-to refresh the `ApplicationContext` as scanning large applications can take a significant
-amount of time.
+=== Generating an index of candidate components
+While classpath scanning is very fast, it is possible to improve the startup performance
+of large applications by creating a static list of candidates at compilation time. In this
+mode, _all modules_ of the application must use this mechanism as, when the
+`ApplicationContext` detects such index, it will automatically use it rather than scanning
+the classpath.
 
 To generate the index, simply add an additional dependency to each module that contains
 components that are target for component scan directives:
@@ -5899,6 +5899,13 @@ Or, using Gradle:
 
 That process will generate a `META-INF/spring.components` file that is going to be
 included in the jar.
+
+[NOTE]
+====
+When working with this mode in your IDE, the `spring-context-indexer` must be registered
+as an annotation processor to make sure the index is up to date when candidate components
+are updated.
+====
 
 [TIP]
 ====
@@ -7416,6 +7423,9 @@ jdbc.password=
 	}
 ----
 
+
+
+
 [[beans-environment]]
 == Environment abstraction
 
@@ -7436,6 +7446,8 @@ variables, JNDI, servlet context parameters, ad-hoc Properties objects, Maps, an
 on. The role of the `Environment` object with relation to properties is to provide the
 user with a convenient service interface for configuring property sources and resolving
 properties from them.
+
+
 
 [[beans-definition-profiles]]
 === Bean definition profiles
@@ -7511,7 +7523,7 @@ can rewrite the `dataSource` configuration as follows:
 [subs="verbatim,quotes"]
 ----
 	@Configuration
-	**@Profile("dev")**
+	**@Profile("development")**
 	public class StandaloneDataConfig {
 
 		@Bean
@@ -7563,34 +7575,6 @@ of creating a custom _composed annotation_. The following example defines a cust
 	}
 ----
 
-`@Profile` can also be declared at the method level to include only one particular bean
-of a configuration class:
-
-[source,java,indent=0]
-[subs="verbatim,quotes"]
-----
-	@Configuration
-	public class AppConfig {
-
-		@Bean
-		**@Profile("dev")**
-		public DataSource devDataSource() {
-			return new EmbeddedDatabaseBuilder()
-				.setType(EmbeddedDatabaseType.HSQL)
-				.addScript("classpath:com/bank/config/sql/schema.sql")
-				.addScript("classpath:com/bank/config/sql/test-data.sql")
-				.build();
-		}
-
-		@Bean
-		**@Profile("production")**
-		public DataSource productionDataSource() throws Exception {
-			Context ctx = new InitialContext();
-			return (DataSource) ctx.lookup("java:comp/env/jdbc/datasource");
-		}
-	}
-----
-
 [TIP]
 ====
 If a `@Configuration` class is marked with `@Profile`, all of the `@Bean` methods and
@@ -7603,8 +7587,56 @@ active. For example, given `@Profile({"p1", "!p2"})`, registration will occur if
 'p1' is active or if profile 'p2' is not active.
 ====
 
+`@Profile` can also be declared at the method level to include only one particular bean
+of a configuration class, e.g. for alternative variants of a particular bean:
+
+[source,java,indent=0]
+[subs="verbatim,quotes"]
+----
+	@Configuration
+	public class AppConfig {
+
+		@Bean("dataSource")
+		**@Profile("development")**
+		public DataSource standaloneDataSource() {
+			return new EmbeddedDatabaseBuilder()
+				.setType(EmbeddedDatabaseType.HSQL)
+				.addScript("classpath:com/bank/config/sql/schema.sql")
+				.addScript("classpath:com/bank/config/sql/test-data.sql")
+				.build();
+		}
+
+		@Bean("dataSource")
+		**@Profile("production")**
+		public DataSource jndiDataSource() throws Exception {
+			Context ctx = new InitialContext();
+			return (DataSource) ctx.lookup("java:comp/env/jdbc/datasource");
+		}
+	}
+----
+
+[NOTE]
+====
+With `@Profile` on `@Bean` methods, a special scenario may apply: In the case of
+overloaded `@Bean` methods of the same Java method name (analogous to constructor
+overloading), an `@Profile` condition needs to be consistently declared on all
+overloaded methods. If the conditions are inconsistent, only the condition on the
+first declaration among the overloaded methods will matter. `@Profile` can therefore
+not be used to select an overloaded method with a particular argument signature over
+another; resolution between all factory methods for the same bean follows Spring's
+constructor resolution algorithm at creation time.
+
+If you would like to define alternative beans with different profile conditions,
+use distinct Java method names pointing to the same bean name via the `@Bean` name
+attribute, as indicated in the example above. If the argument signatures are all
+the same (e.g. all of the variants have no-arg factory methods), this is the only
+way to represent such an arrangement in a valid Java class in the first place
+(since there can only be one method of a particular name and argument signature).
+====
+
+
 [[beans-definition-profiles-xml]]
-=== XML bean definition profiles
+==== XML bean definition profiles
 
 The XML counterpart is the `profile` attribute of the `<beans>` element. Our sample
 configuration above can be rewritten in two XML files as follows:
@@ -7612,7 +7644,7 @@ configuration above can be rewritten in two XML files as follows:
 [source,xml,indent=0]
 [subs="verbatim,quotes"]
 ----
-	<beans profile="dev"
+	<beans profile="development"
 		xmlns="http://www.springframework.org/schema/beans"
 		xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
 		xmlns:jdbc="http://www.springframework.org/schema/jdbc"
@@ -7651,7 +7683,7 @@ It is also possible to avoid that split and nest `<beans/>` elements within the 
 
 		<!-- other bean definitions -->
 
-		<beans profile="dev">
+		<beans profile="development">
 			<jdbc:embedded-database id="dataSource">
 				<jdbc:script location="classpath:com/bank/config/sql/schema.sql"/>
 				<jdbc:script location="classpath:com/bank/config/sql/test-data.sql"/>
@@ -7685,7 +7717,7 @@ it programmatically against the `Environment` API which is available via an
 [subs="verbatim,quotes"]
 ----
 	AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext();
-	ctx.getEnvironment().setActiveProfiles("dev");
+	ctx.getEnvironment().setActiveProfiles("development");
 	ctx.register(SomeConfig.class, StandaloneDataConfig.class, JndiDataConfig.class);
 	ctx.refresh();
 ----

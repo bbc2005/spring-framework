@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2015 the original author or authors.
+ * Copyright 2002-2017 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,8 +19,6 @@ package org.springframework.mock.web;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletResponse;
 
@@ -170,9 +168,9 @@ public class MockHttpServletResponseTests {
 
 		response.addCookie(cookie);
 
-		assertEquals("foo=bar;Path=/path;Domain=example.com;" +
-				"Max-Age=0;Expires=Thu, 01 Jan 1970 00:00:00 GMT;" +
-				"Secure;HttpOnly", response.getHeader(HttpHeaders.SET_COOKIE));
+		assertEquals("foo=bar; Path=/path; Domain=example.com; " +
+				"Max-Age=0; Expires=Thu, 1 Jan 1970 00:00:00 GMT; " +
+				"Secure; HttpOnly", response.getHeader(HttpHeaders.SET_COOKIE));
 	}
 
 	@Test

@@ -13,13 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.springframework.http.codec;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Collections;
 import java.util.List;
-import java.util.Map;
-import java.util.function.Supplier;
 
 import org.springframework.core.ResolvableType;
 import org.springframework.core.codec.ByteArrayDecoder;
@@ -32,270 +31,233 @@ import org.springframework.core.codec.DataBufferEncoder;
 import org.springframework.core.codec.Decoder;
 import org.springframework.core.codec.Encoder;
 import org.springframework.core.codec.ResourceDecoder;
+import org.springframework.core.codec.StringDecoder;
 import org.springframework.http.codec.json.Jackson2JsonDecoder;
 import org.springframework.http.codec.json.Jackson2JsonEncoder;
+import org.springframework.http.codec.json.Jackson2SmileDecoder;
+import org.springframework.http.codec.json.Jackson2SmileEncoder;
 import org.springframework.http.codec.xml.Jaxb2XmlDecoder;
 import org.springframework.http.codec.xml.Jaxb2XmlEncoder;
+import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 import org.springframework.util.ClassUtils;
 
 /**
- * Base class for client or server HTTP message reader and writer configurers.
+ * Default implementation of {@link CodecConfigurer}.
  *
  * @author Rossen Stoyanchev
  * @since 5.0
  */
-public abstract class AbstractCodecConfigurer {
+abstract class AbstractCodecConfigurer implements CodecConfigurer {
 
-	public static final boolean jackson2Present =
+	protected static final boolean jackson2Present =
 			ClassUtils.isPresent("com.fasterxml.jackson.databind.ObjectMapper",
 					AbstractCodecConfigurer.class.getClassLoader()) &&
 					ClassUtils.isPresent("com.fasterxml.jackson.core.JsonGenerator",
 							AbstractCodecConfigurer.class.getClassLoader());
 
-	public static final boolean jaxb2Present =
-			ClassUtils.isPresent("javax.xml.bind.Binder", AbstractCodecConfigurer.class.getClassLoader());
+	private static final boolean jackson2SmilePresent =
+			ClassUtils.isPresent("com.fasterxml.jackson.dataformat.smile.SmileFactory",
+					AbstractCodecConfigurer.class.getClassLoader());
+
+	protected static final boolean jaxb2Present = ClassUtils.isPresent("javax.xml.bind.Binder",
+			AbstractCodecConfigurer.class.getClassLoader());
 
 
-	private final DefaultCodecConfigurer defaultCodecs;
+	private final AbstractDefaultCodecs defaultCodecs;
 
-	private final CustomCodecConfigurer customCodecs = new CustomCodecConfigurer();
+	private final DefaultCustomCodecs customCodecs = new DefaultCustomCodecs();
 
 
-	/**
-	 * Protected constructor with the configurer for default readers and writers.
-	 */
-	protected AbstractCodecConfigurer(DefaultCodecConfigurer defaultCodecConfigurer) {
-		Assert.notNull(defaultCodecConfigurer, "DefaultCodecConfigurer is required.");
-		this.defaultCodecs = defaultCodecConfigurer;
+	protected AbstractCodecConfigurer(AbstractDefaultCodecs defaultCodecs) {
+		Assert.notNull(defaultCodecs, "'defaultCodecs' is required");
+		this.defaultCodecs = defaultCodecs;
+		this.defaultCodecs.setCustomCodecs(this.customCodecs);
 	}
 
 
-	/**
-	 * Provide overrides for built-in HTTP message readers or writers.
-	 */
-	public DefaultCodecConfigurer defaultCodec() {
+	@Override
+	public DefaultCodecs defaultCodecs() {
 		return this.defaultCodecs;
 	}
 
-	/**
-	 * Whether to make default HTTP message reader and writer registrations.
-	 * <p>By default this is set to {@code "true"}.
-	 */
-	public void registerDefaults(boolean registerDefaults) {
-		this.defaultCodec().setSuppressed(!registerDefaults);
+	@Override
+	public void registerDefaults(boolean shouldRegister) {
+		this.defaultCodecs.setRegisterDefaults(shouldRegister);
 	}
 
-	/**
-	 * Register a custom encoder or decoder.
-	 */
-	public CustomCodecConfigurer customCodec() {
+	@Override
+	public CustomCodecs customCodecs() {
 		return this.customCodecs;
 	}
 
-
-	/**
-	 * Prepare a list of HTTP message readers.
-	 */
+	@Override
 	public List<HttpMessageReader<?>> getReaders() {
-
 		List<HttpMessageReader<?>> result = new ArrayList<>();
 
-		addDefaultTypedReaders(result);
-		customCodec().addTypedReadersTo(result);
+		result.addAll(this.defaultCodecs.getTypedReaders());
+		result.addAll(this.customCodecs.getTypedReaders());
 
-		addDefaultObjectReaders(result);
-		customCodec().addObjectReadersTo(result);
+		result.addAll(this.defaultCodecs.getObjectReaders());
+		result.addAll(this.customCodecs.getObjectReaders());
 
-		// String + "*/*"
-		defaultCodec().addStringReaderTo(result);
+		result.addAll(this.defaultCodecs.getCatchAllReaders());
 		return result;
 	}
 
-	/**
-	 * Add built-in, concrete, Java type readers.
-	 */
-	protected void addDefaultTypedReaders(List<HttpMessageReader<?>> result) {
-		defaultCodec().addReaderTo(result, ByteArrayDecoder.class, ByteArrayDecoder::new);
-		defaultCodec().addReaderTo(result, ByteBufferDecoder.class, ByteBufferDecoder::new);
-		defaultCodec().addReaderTo(result, DataBufferDecoder.class, DataBufferDecoder::new);
-		defaultCodec().addReaderTo(result, ResourceDecoder.class, ResourceDecoder::new);
-		defaultCodec().addStringReaderTextOnlyTo(result);
-	}
-
-	/**
-	 * Add built-in, Object-based readers.
-	 */
-	protected void addDefaultObjectReaders(List<HttpMessageReader<?>> result) {
-		if (jaxb2Present) {
-			defaultCodec().addReaderTo(result, Jaxb2XmlDecoder.class, Jaxb2XmlDecoder::new);
-		}
-		if (jackson2Present) {
-			defaultCodec().addReaderTo(result, Jackson2JsonDecoder.class, Jackson2JsonDecoder::new);
-		}
-	}
-
-	/**
-	 * Prepare a list of HTTP message writers.
-	 */
+	@Override
 	public List<HttpMessageWriter<?>> getWriters() {
-
 		List<HttpMessageWriter<?>> result = new ArrayList<>();
 
-		addDefaultTypedWriter(result);
-		customCodec().addTypedWritersTo(result);
+		result.addAll(this.defaultCodecs.getTypedWriters());
+		result.addAll(this.customCodecs.getTypedWriters());
 
-		addDefaultObjectWriters(result);
-		customCodec().addObjectWritersTo(result);
+		result.addAll(this.defaultCodecs.getObjectWriters());
+		result.addAll(this.customCodecs.getObjectWriters());
 
-		// String + "*/*"
-		defaultCodec().addStringWriterTo(result);
+		result.addAll(this.defaultCodecs.getCatchAllWriters());
 		return result;
 	}
 
-	/**
-	 * Add built-in, concrete, Java type readers.
-	 */
-	protected void addDefaultTypedWriter(List<HttpMessageWriter<?>> result) {
-		defaultCodec().addWriterTo(result, ByteArrayEncoder.class, ByteArrayEncoder::new);
-		defaultCodec().addWriterTo(result, ByteBufferEncoder.class, ByteBufferEncoder::new);
-		defaultCodec().addWriterTo(result, DataBufferEncoder.class, DataBufferEncoder::new);
-		defaultCodec().addWriterTo(result, ResourceHttpMessageWriter::new);
-		defaultCodec().addStringWriterTextPlainOnlyTo(result);
-	}
 
-	/**
-	 * Add built-in, Object-based readers.
-	 */
-	protected void addDefaultObjectWriters(List<HttpMessageWriter<?>> result) {
-		if (jaxb2Present) {
-			defaultCodec().addWriterTo(result, Jaxb2XmlEncoder.class, Jaxb2XmlEncoder::new);
+	abstract protected static class AbstractDefaultCodecs implements DefaultCodecs {
+
+		private boolean registerDefaults = true;
+
+		@Nullable
+		private Jackson2JsonDecoder jackson2JsonDecoder;
+
+		@Nullable
+		private Jackson2JsonEncoder jackson2JsonEncoder;
+
+		@Nullable
+		private DefaultCustomCodecs customCodecs;
+
+		public void setRegisterDefaults(boolean registerDefaults) {
+			this.registerDefaults = registerDefaults;
 		}
-		if (jackson2Present) {
-			defaultCodec().addWriterTo(result, Jackson2JsonEncoder.class, Jackson2JsonEncoder::new);
-		}
-	}
 
-
-	/**
-	 * A registry and a factory for built-in HTTP message readers and writers.
-	 */
-	public abstract static class DefaultCodecConfigurer {
-
-		private boolean suppressed = false;
-
-		private final Map<Class<?>, HttpMessageReader<?>> readers = new HashMap<>();
-
-		private final Map<Class<?>, HttpMessageWriter<?>> writers = new HashMap<>();
-
-
-		/**
-		 * Override the default Jackson {@code Decoder}.
-		 * @param decoder the decoder to use
-		 */
-		public void jackson2Decoder(Jackson2JsonDecoder decoder) {
-			this.readers.put(Jackson2JsonDecoder.class, new DecoderHttpMessageReader<>(decoder));
+		public boolean shouldRegisterDefaults() {
+			return this.registerDefaults;
 		}
 
 		/**
-		 * Override the default Jackson {@code Encoder} for JSON.
-		 * @param encoder the encoder to use
+		 * Access to custom codecs for sub-classes, e.g. for multipart writers.
 		 */
-		public void jackson2Encoder(Jackson2JsonEncoder encoder) {
-			this.writers.put(Jackson2JsonEncoder.class, new EncoderHttpMessageWriter<>(encoder));
+		public void setCustomCodecs(@Nullable DefaultCustomCodecs customCodecs) {
+			this.customCodecs = customCodecs;
 		}
 
-
-		// Accessors for internal use...
-
-
-		protected Map<Class<?>, HttpMessageReader<?>> getReaders() {
-			return this.readers;
+		@Nullable
+		public DefaultCustomCodecs getCustomCodecs() {
+			return this.customCodecs;
 		}
 
-		protected Map<Class<?>, HttpMessageWriter<?>> getWriters() {
-			return this.writers;
+		@Override
+		public void jackson2JsonDecoder(Jackson2JsonDecoder decoder) {
+			this.jackson2JsonDecoder = decoder;
 		}
 
-		private void setSuppressed(boolean suppressed) {
-			this.suppressed = suppressed;
+		protected Jackson2JsonDecoder jackson2JsonDecoder() {
+			return (this.jackson2JsonDecoder != null ? this.jackson2JsonDecoder : new Jackson2JsonDecoder());
 		}
 
-
-		// Protected methods for building a list of default readers or writers...
-
-
-		protected <T, D extends Decoder<T>> void addReaderTo(List<HttpMessageReader<?>> result,
-				Class<D> key, Supplier<D> fallback) {
-
-			addReaderTo(result, () -> findDecoderReader(key, fallback));
+		@Override
+		public void jackson2JsonEncoder(Jackson2JsonEncoder encoder) {
+			this.jackson2JsonEncoder = encoder;
 		}
 
-		protected void addReaderTo(List<HttpMessageReader<?>> result,
-				Supplier<HttpMessageReader<?>> reader) {
+		protected Jackson2JsonEncoder jackson2JsonEncoder() {
+			return (this.jackson2JsonEncoder != null ? this.jackson2JsonEncoder : new Jackson2JsonEncoder());
+		}
 
-			if (!this.suppressed) {
-				result.add(reader.get());
+		// Readers...
+
+		public List<HttpMessageReader<?>> getTypedReaders() {
+			if (!this.registerDefaults) {
+				return Collections.emptyList();
 			}
+			List<HttpMessageReader<?>> result = new ArrayList<>();
+			result.add(new DecoderHttpMessageReader<>(new ByteArrayDecoder()));
+			result.add(new DecoderHttpMessageReader<>(new ByteBufferDecoder()));
+			result.add(new DecoderHttpMessageReader<>(new DataBufferDecoder()));
+			result.add(new DecoderHttpMessageReader<>(new ResourceDecoder()));
+			result.add(new DecoderHttpMessageReader<>(StringDecoder.textPlainOnly(splitTextOnNewLine())));
+			return result;
 		}
 
-		protected <T, D extends Decoder<T>> DecoderHttpMessageReader<?> findDecoderReader(
-				Class<D> decoderType, Supplier<D> fallback) {
+		protected abstract boolean splitTextOnNewLine();
 
-			DecoderHttpMessageReader<?> reader = (DecoderHttpMessageReader<?>) this.readers.get(decoderType);
-			return reader != null ? reader : new DecoderHttpMessageReader<>(fallback.get());
-		}
-
-		@SuppressWarnings("unchecked")
-		protected HttpMessageReader<?> findReader(Class<?> key, Supplier<HttpMessageReader<?>> fallback) {
-			return this.readers.containsKey(key) ? this.readers.get(key) : fallback.get();
-		}
-
-
-		protected <T, E extends Encoder<T>> void addWriterTo(List<HttpMessageWriter<?>> result,
-				Class<E> key, Supplier<E> fallback) {
-
-			addWriterTo(result, () -> findEncoderWriter(key, fallback));
-		}
-
-		protected void addWriterTo(List<HttpMessageWriter<?>> result,
-				Supplier<HttpMessageWriter<?>> writer) {
-
-			if (!this.suppressed) {
-				result.add(writer.get());
+		public List<HttpMessageReader<?>> getObjectReaders() {
+			if (!this.registerDefaults) {
+				return Collections.emptyList();
 			}
+			List<HttpMessageReader<?>> result = new ArrayList<>();
+			if (jaxb2Present) {
+				result.add(new DecoderHttpMessageReader<>(new Jaxb2XmlDecoder()));
+			}
+			if (jackson2Present) {
+				result.add(new DecoderHttpMessageReader<>(jackson2JsonDecoder()));
+			}
+			if (jackson2SmilePresent) {
+				result.add(new DecoderHttpMessageReader<>(new Jackson2SmileDecoder()));
+			}
+			return result;
 		}
 
-		protected <T, E extends Encoder<T>> EncoderHttpMessageWriter<?> findEncoderWriter(
-				Class<E> encoderType, Supplier<E> fallback) {
-
-			EncoderHttpMessageWriter<?> writer = (EncoderHttpMessageWriter<?>) this.writers.get(encoderType);
-			return writer != null ? writer : new EncoderHttpMessageWriter<>(fallback.get());
+		public List<HttpMessageReader<?>> getCatchAllReaders() {
+			if (!this.registerDefaults) {
+				return Collections.emptyList();
+			}
+			List<HttpMessageReader<?>> result = new ArrayList<>();
+			result.add(new DecoderHttpMessageReader<>(StringDecoder.allMimeTypes(splitTextOnNewLine())));
+			return result;
 		}
 
-		@SuppressWarnings("unchecked")
-		protected HttpMessageWriter<?> findWriter(Class<?> key, Supplier<HttpMessageWriter<?>> fallback) {
-			return this.writers.containsKey(key) ? this.writers.get(key) : fallback.get();
+		// Writers...
+
+		public List<HttpMessageWriter<?>> getTypedWriters() {
+			if (!this.registerDefaults) {
+				return Collections.emptyList();
+			}
+			List<HttpMessageWriter<?>> result = new ArrayList<>();
+			result.add(new EncoderHttpMessageWriter<>(new ByteArrayEncoder()));
+			result.add(new EncoderHttpMessageWriter<>(new ByteBufferEncoder()));
+			result.add(new EncoderHttpMessageWriter<>(new DataBufferEncoder()));
+			result.add(new ResourceHttpMessageWriter());
+			result.add(new EncoderHttpMessageWriter<>(CharSequenceEncoder.textPlainOnly()));
+			return result;
 		}
 
-
-		protected abstract void addStringReaderTextOnlyTo(List<HttpMessageReader<?>> result);
-
-		protected abstract void addStringReaderTo(List<HttpMessageReader<?>> result);
-
-		protected void addStringWriterTextPlainOnlyTo(List<HttpMessageWriter<?>> result) {
-			addWriterTo(result, () -> new EncoderHttpMessageWriter<>(CharSequenceEncoder.textPlainOnly()));
+		public List<HttpMessageWriter<?>> getObjectWriters() {
+			if (!this.registerDefaults) {
+				return Collections.emptyList();
+			}
+			List<HttpMessageWriter<?>> result = new ArrayList<>();
+			if (jaxb2Present) {
+				result.add(new EncoderHttpMessageWriter<>(new Jaxb2XmlEncoder()));
+			}
+			if (jackson2Present) {
+				result.add(new EncoderHttpMessageWriter<>(jackson2JsonEncoder()));
+			}
+			if (jackson2SmilePresent) {
+				result.add(new EncoderHttpMessageWriter<>(new Jackson2SmileEncoder()));
+			}
+			return result;
 		}
 
-		protected void addStringWriterTo(List<HttpMessageWriter<?>> result) {
-			addWriterTo(result, () -> new EncoderHttpMessageWriter<>(CharSequenceEncoder.allMimeTypes()));
+		public List<HttpMessageWriter<?>> getCatchAllWriters() {
+			if (!this.registerDefaults) {
+				return Collections.emptyList();
+			}
+			List<HttpMessageWriter<?>> result = new ArrayList<>();
+			result.add(new EncoderHttpMessageWriter<>(CharSequenceEncoder.allMimeTypes()));
+			return result;
 		}
 	}
 
-	/**
-	 * Registry and container for custom HTTP message readers and writers.
-	 */
-	public static class CustomCodecConfigurer {
+
+	protected static class DefaultCustomCodecs implements CustomCodecs {
 
 		private final List<HttpMessageReader<?>> typedReaders = new ArrayList<>();
 
@@ -305,60 +267,43 @@ public abstract class AbstractCodecConfigurer {
 
 		private final List<HttpMessageWriter<?>> objectWriters = new ArrayList<>();
 
-
-		/**
-		 * Add a custom {@code Decoder} internally wrapped with
-		 * {@link DecoderHttpMessageReader}).
-		 */
+		@Override
 		public void decoder(Decoder<?> decoder) {
 			reader(new DecoderHttpMessageReader<>(decoder));
 		}
 
-		/**
-		 * Add a custom {@code Encoder}, internally wrapped with
-		 * {@link EncoderHttpMessageWriter}.
-		 */
+		@Override
 		public void encoder(Encoder<?> encoder) {
 			writer(new EncoderHttpMessageWriter<>(encoder));
 		}
 
-		/**
-		 * Add a custom {@link HttpMessageReader}. For readers of type
-		 * {@link DecoderHttpMessageReader} consider using the shortcut
-		 * {@link #decoder(Decoder)} instead.
-		 */
+		@Override
 		public void reader(HttpMessageReader<?> reader) {
 			boolean canReadToObject = reader.canRead(ResolvableType.forClass(Object.class), null);
 			(canReadToObject ? this.objectReaders : this.typedReaders).add(reader);
 		}
 
-		/**
-		 * Add a custom {@link HttpMessageWriter}. For readers of type
-		 * {@link EncoderHttpMessageWriter} consider using the shortcut
-		 * {@link #encoder(Encoder)} instead.
-		 */
+		@Override
 		public void writer(HttpMessageWriter<?> writer) {
 			boolean canWriteObject = writer.canWrite(ResolvableType.forClass(Object.class), null);
 			(canWriteObject ? this.objectWriters : this.typedWriters).add(writer);
 		}
 
-
-		// Internal methods for building a list of custom readers or writers...
-
-		protected void addTypedReadersTo(List<HttpMessageReader<?>> result) {
-			result.addAll(this.typedReaders);
+		public List<HttpMessageReader<?>> getTypedReaders() {
+			return this.typedReaders;
 		}
 
-		protected void addObjectReadersTo(List<HttpMessageReader<?>> result) {
-			result.addAll(this.objectReaders);
+		public List<HttpMessageWriter<?>> getTypedWriters() {
+			return this.typedWriters;
 		}
 
-		protected void addTypedWritersTo(List<HttpMessageWriter<?>> result) {
-			result.addAll(this.typedWriters);
+		public List<HttpMessageReader<?>> getObjectReaders() {
+			return this.objectReaders;
 		}
 
-		protected void addObjectWritersTo(List<HttpMessageWriter<?>> result) {
-			result.addAll(this.objectWriters);
+		public List<HttpMessageWriter<?>> getObjectWriters() {
+			return this.objectWriters;
 		}
 	}
+
 }

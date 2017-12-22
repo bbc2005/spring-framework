@@ -32,6 +32,7 @@ import org.springframework.core.DefaultParameterNameDiscoverer;
 import org.springframework.core.MethodParameter;
 import org.springframework.core.ParameterNameDiscoverer;
 import org.springframework.http.HttpStatus;
+import org.springframework.lang.Nullable;
 import org.springframework.util.ClassUtils;
 import org.springframework.util.ObjectUtils;
 import org.springframework.util.ReflectionUtils;
@@ -113,7 +114,7 @@ public class InvocableHandlerMethod extends HandlerMethod {
 	public Mono<HandlerResult> invoke(ServerWebExchange exchange, BindingContext bindingContext,
 			Object... providedArgs) {
 
-		return resolveArguments(exchange, bindingContext, providedArgs).then(args -> {
+		return resolveArguments(exchange, bindingContext, providedArgs).flatMap(args -> {
 			try {
 				Object value = doInvoke(args);
 				HandlerResult result = new HandlerResult(this, value, getReturnType(), bindingContext);
@@ -194,7 +195,7 @@ public class InvocableHandlerMethod extends HandlerMethod {
 		}
 	}
 
-	private IllegalStateException getArgumentError(String text, MethodParameter parameter, Throwable ex) {
+	private IllegalStateException getArgumentError(String text, MethodParameter parameter, @Nullable Throwable ex) {
 		return new IllegalStateException(getDetailedErrorMessage(text, parameter), ex);
 	}
 

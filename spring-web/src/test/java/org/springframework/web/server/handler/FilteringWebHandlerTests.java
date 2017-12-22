@@ -104,7 +104,7 @@ public class FilteringWebHandlerTests {
 
 		new FilteringWebHandler(targetHandler, Collections.singletonList(filter))
 				.handle(MockServerHttpRequest.get("/").toExchange())
-				.block(Duration.ZERO);
+				.block(Duration.ofSeconds(5));
 
 		assertTrue(filter.invoked());
 		assertTrue(targetHandler.invoked());
@@ -119,8 +119,8 @@ public class FilteringWebHandlerTests {
 		TestExceptionHandler exceptionHandler = new TestExceptionHandler();
 
 		WebHttpHandlerBuilder.webHandler(new StubWebHandler())
-				.filters(Collections.singletonList(new ExceptionFilter()))
-				.exceptionHandlers(Collections.singletonList(exceptionHandler)).build()
+				.filter(new ExceptionFilter())
+				.exceptionHandler(exceptionHandler).build()
 				.handle(request, response)
 				.block();
 
@@ -163,14 +163,14 @@ public class FilteringWebHandlerTests {
 
 		@Override
 		public Mono<Void> doFilter(ServerWebExchange exchange, WebFilterChain chain) {
-			return doAsyncWork().then(asyncResult -> {
+			return doAsyncWork().flatMap(asyncResult -> {
 				logger.debug("Async result: " + asyncResult);
 				return chain.filter(exchange);
 			});
 		}
 
 		private Mono<String> doAsyncWork() {
-			return Mono.just("123");
+			return Mono.delay(Duration.ofMillis(100L)).map(l -> "123");
 		}
 	}
 

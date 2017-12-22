@@ -35,6 +35,8 @@ import org.springframework.core.codec.StringDecoder;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.json.Jackson2JsonDecoder;
 import org.springframework.http.codec.json.Jackson2JsonEncoder;
+import org.springframework.http.codec.json.Jackson2SmileDecoder;
+import org.springframework.http.codec.json.Jackson2SmileEncoder;
 import org.springframework.http.codec.xml.Jaxb2XmlDecoder;
 import org.springframework.http.codec.xml.Jaxb2XmlEncoder;
 import org.springframework.util.MimeTypeUtils;
@@ -47,12 +49,12 @@ import static org.mockito.Mockito.when;
 import static org.springframework.core.ResolvableType.forClass;
 
 /**
- * Unit tests for {@link ServerCodecConfigurer}.
+ * Unit tests for {@link AbstractCodecConfigurer.AbstractDefaultCodecs}.
  * @author Rossen Stoyanchev
  */
 public class CodecConfigurerTests {
 
-	private final TestCodecConfigurer configurer = new TestCodecConfigurer();
+	private final CodecConfigurer configurer = new TestCodecConfigurer();
 
 	private final AtomicInteger index = new AtomicInteger(0);
 
@@ -60,7 +62,7 @@ public class CodecConfigurerTests {
 	@Test
 	public void defaultReaders() throws Exception {
 		List<HttpMessageReader<?>> readers = this.configurer.getReaders();
-		assertEquals(8, readers.size());
+		assertEquals(9, readers.size());
 		assertEquals(ByteArrayDecoder.class, getNextDecoder(readers).getClass());
 		assertEquals(ByteBufferDecoder.class, getNextDecoder(readers).getClass());
 		assertEquals(DataBufferDecoder.class, getNextDecoder(readers).getClass());
@@ -68,13 +70,14 @@ public class CodecConfigurerTests {
 		assertStringDecoder(getNextDecoder(readers), true);
 		assertEquals(Jaxb2XmlDecoder.class, getNextDecoder(readers).getClass());
 		assertEquals(Jackson2JsonDecoder.class, getNextDecoder(readers).getClass());
+		assertEquals(Jackson2SmileDecoder.class, getNextDecoder(readers).getClass());
 		assertStringDecoder(getNextDecoder(readers), false);
 	}
 
 	@Test
 	public void defaultWriters() throws Exception {
 		List<HttpMessageWriter<?>> writers = this.configurer.getWriters();
-		assertEquals(8, writers.size());
+		assertEquals(9, writers.size());
 		assertEquals(ByteArrayEncoder.class, getNextEncoder(writers).getClass());
 		assertEquals(ByteBufferEncoder.class, getNextEncoder(writers).getClass());
 		assertEquals(DataBufferEncoder.class, getNextEncoder(writers).getClass());
@@ -82,6 +85,7 @@ public class CodecConfigurerTests {
 		assertStringEncoder(getNextEncoder(writers), true);
 		assertEquals(Jaxb2XmlEncoder.class, getNextEncoder(writers).getClass());
 		assertEquals(Jackson2JsonEncoder.class, getNextEncoder(writers).getClass());
+		assertEquals(Jackson2SmileEncoder.class, getNextEncoder(writers).getClass());
 		assertStringEncoder(getNextEncoder(writers), false);
 	}
 
@@ -100,15 +104,15 @@ public class CodecConfigurerTests {
 		when(customReader1.canRead(ResolvableType.forClass(Object.class), null)).thenReturn(false);
 		when(customReader2.canRead(ResolvableType.forClass(Object.class), null)).thenReturn(true);
 
-		this.configurer.customCodec().decoder(customDecoder1);
-		this.configurer.customCodec().decoder(customDecoder2);
+		this.configurer.customCodecs().decoder(customDecoder1);
+		this.configurer.customCodecs().decoder(customDecoder2);
 
-		this.configurer.customCodec().reader(customReader1);
-		this.configurer.customCodec().reader(customReader2);
+		this.configurer.customCodecs().reader(customReader1);
+		this.configurer.customCodecs().reader(customReader2);
 
 		List<HttpMessageReader<?>> readers = this.configurer.getReaders();
 
-		assertEquals(12, readers.size());
+		assertEquals(13, readers.size());
 		assertEquals(ByteArrayDecoder.class, getNextDecoder(readers).getClass());
 		assertEquals(ByteBufferDecoder.class, getNextDecoder(readers).getClass());
 		assertEquals(DataBufferDecoder.class, getNextDecoder(readers).getClass());
@@ -118,6 +122,7 @@ public class CodecConfigurerTests {
 		assertSame(customReader1, readers.get(this.index.getAndIncrement()));
 		assertEquals(Jaxb2XmlDecoder.class, getNextDecoder(readers).getClass());
 		assertEquals(Jackson2JsonDecoder.class, getNextDecoder(readers).getClass());
+		assertEquals(Jackson2SmileDecoder.class, getNextDecoder(readers).getClass());
 		assertSame(customDecoder2, getNextDecoder(readers));
 		assertSame(customReader2, readers.get(this.index.getAndIncrement()));
 		assertEquals(StringDecoder.class, getNextDecoder(readers).getClass());
@@ -138,15 +143,15 @@ public class CodecConfigurerTests {
 		when(customWriter1.canWrite(ResolvableType.forClass(Object.class), null)).thenReturn(false);
 		when(customWriter2.canWrite(ResolvableType.forClass(Object.class), null)).thenReturn(true);
 
-		this.configurer.customCodec().encoder(customEncoder1);
-		this.configurer.customCodec().encoder(customEncoder2);
+		this.configurer.customCodecs().encoder(customEncoder1);
+		this.configurer.customCodecs().encoder(customEncoder2);
 
-		this.configurer.customCodec().writer(customWriter1);
-		this.configurer.customCodec().writer(customWriter2);
+		this.configurer.customCodecs().writer(customWriter1);
+		this.configurer.customCodecs().writer(customWriter2);
 
 		List<HttpMessageWriter<?>> writers = this.configurer.getWriters();
 
-		assertEquals(12, writers.size());
+		assertEquals(13, writers.size());
 		assertEquals(ByteArrayEncoder.class, getNextEncoder(writers).getClass());
 		assertEquals(ByteBufferEncoder.class, getNextEncoder(writers).getClass());
 		assertEquals(DataBufferEncoder.class, getNextEncoder(writers).getClass());
@@ -156,6 +161,7 @@ public class CodecConfigurerTests {
 		assertSame(customWriter1, writers.get(this.index.getAndIncrement()));
 		assertEquals(Jaxb2XmlEncoder.class, getNextEncoder(writers).getClass());
 		assertEquals(Jackson2JsonEncoder.class, getNextEncoder(writers).getClass());
+		assertEquals(Jackson2SmileEncoder.class, getNextEncoder(writers).getClass());
 		assertSame(customEncoder2, getNextEncoder(writers));
 		assertSame(customWriter2, writers.get(this.index.getAndIncrement()));
 		assertEquals(CharSequenceEncoder.class, getNextEncoder(writers).getClass());
@@ -176,11 +182,11 @@ public class CodecConfigurerTests {
 		when(customReader1.canRead(ResolvableType.forClass(Object.class), null)).thenReturn(false);
 		when(customReader2.canRead(ResolvableType.forClass(Object.class), null)).thenReturn(true);
 
-		this.configurer.customCodec().decoder(customDecoder1);
-		this.configurer.customCodec().decoder(customDecoder2);
+		this.configurer.customCodecs().decoder(customDecoder1);
+		this.configurer.customCodecs().decoder(customDecoder2);
 
-		this.configurer.customCodec().reader(customReader1);
-		this.configurer.customCodec().reader(customReader2);
+		this.configurer.customCodecs().reader(customReader1);
+		this.configurer.customCodecs().reader(customReader2);
 
 		this.configurer.registerDefaults(false);
 
@@ -208,11 +214,11 @@ public class CodecConfigurerTests {
 		when(customWriter1.canWrite(ResolvableType.forClass(Object.class), null)).thenReturn(false);
 		when(customWriter2.canWrite(ResolvableType.forClass(Object.class), null)).thenReturn(true);
 
-		this.configurer.customCodec().encoder(customEncoder1);
-		this.configurer.customCodec().encoder(customEncoder2);
+		this.configurer.customCodecs().encoder(customEncoder1);
+		this.configurer.customCodecs().encoder(customEncoder2);
 
-		this.configurer.customCodec().writer(customWriter1);
-		this.configurer.customCodec().writer(customWriter2);
+		this.configurer.customCodecs().writer(customWriter1);
+		this.configurer.customCodecs().writer(customWriter2);
 
 		this.configurer.registerDefaults(false);
 
@@ -229,7 +235,7 @@ public class CodecConfigurerTests {
 	public void jackson2DecoderOverride() throws Exception {
 
 		Jackson2JsonDecoder decoder = new Jackson2JsonDecoder();
-		this.configurer.defaultCodec().jackson2Decoder(decoder);
+		this.configurer.defaultCodecs().jackson2JsonDecoder(decoder);
 
 		assertSame(decoder, this.configurer.getReaders().stream()
 				.filter(writer -> writer instanceof DecoderHttpMessageReader)
@@ -243,7 +249,7 @@ public class CodecConfigurerTests {
 	public void jackson2EncoderOverride() throws Exception {
 
 		Jackson2JsonEncoder encoder = new Jackson2JsonEncoder();
-		this.configurer.defaultCodec().jackson2Encoder(encoder);
+		this.configurer.defaultCodecs().jackson2JsonEncoder(encoder);
 
 		assertSame(encoder, this.configurer.getWriters().stream()
 				.filter(writer -> writer instanceof EncoderHttpMessageWriter)
@@ -257,13 +263,13 @@ public class CodecConfigurerTests {
 	private Decoder<?> getNextDecoder(List<HttpMessageReader<?>> readers) {
 		HttpMessageReader<?> reader = readers.get(this.index.getAndIncrement());
 		assertEquals(DecoderHttpMessageReader.class, reader.getClass());
-		return ((DecoderHttpMessageReader) reader).getDecoder();
+		return ((DecoderHttpMessageReader<?>) reader).getDecoder();
 	}
 
 	private Encoder<?> getNextEncoder(List<HttpMessageWriter<?>> writers) {
 		HttpMessageWriter<?> writer = writers.get(this.index.getAndIncrement());
 		assertEquals(EncoderHttpMessageWriter.class, writer.getClass());
-		return ((EncoderHttpMessageWriter) writer).getEncoder();
+		return ((EncoderHttpMessageWriter<?>) writer).getEncoder();
 	}
 
 	private void assertStringDecoder(Decoder<?> decoder, boolean textOnly) {
@@ -279,21 +285,18 @@ public class CodecConfigurerTests {
 	}
 
 
+
 	private static class TestCodecConfigurer extends AbstractCodecConfigurer {
 
-		private TestCodecConfigurer() {
-			super(new TestDefaultCodecConfigurer());
+		TestCodecConfigurer() {
+			super(new TestDefaultCodecs());
 		}
 
+		private static class TestDefaultCodecs extends AbstractDefaultCodecs {
 
-		private static class TestDefaultCodecConfigurer extends DefaultCodecConfigurer {
-
-			protected void addStringReaderTextOnlyTo(List<HttpMessageReader<?>> result) {
-				addReaderTo(result, () -> new DecoderHttpMessageReader<>(StringDecoder.textPlainOnly(true)));
-			}
-
-			protected void addStringReaderTo(List<HttpMessageReader<?>> result) {
-				addReaderTo(result, () -> new DecoderHttpMessageReader<>(StringDecoder.allMimeTypes(true)));
+			@Override
+			protected boolean splitTextOnNewLine() {
+				return true;
 			}
 		}
 	}

@@ -16,7 +16,6 @@
 
 package org.springframework.web.reactive.function.server;
 
-import org.junit.Ignore;
 import org.junit.Test;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -26,7 +25,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestTemplate;
 
 import static org.junit.Assert.*;
-import static org.springframework.web.reactive.function.BodyInserters.fromObject;
 import static org.springframework.web.reactive.function.server.RequestPredicates.GET;
 import static org.springframework.web.reactive.function.server.RequestPredicates.path;
 import static org.springframework.web.reactive.function.server.RouterFunctions.nest;
@@ -71,7 +69,6 @@ public class NestedRouteIntegrationTests extends AbstractRouterFunctionIntegrati
 	}
 
 	@Test
-	@Ignore("SPR-15419")
 	public void variables() throws Exception {
 		ResponseEntity<String> result =
 				restTemplate.getForEntity("http://localhost:" + port + "/1/2/3", String.class);
@@ -84,11 +81,11 @@ public class NestedRouteIntegrationTests extends AbstractRouterFunctionIntegrati
 	private static class NestedHandler {
 
 		public Mono<ServerResponse> bar(ServerRequest request) {
-			return ServerResponse.ok().body(fromObject("bar"));
+			return ServerResponse.ok().syncBody("bar");
 		}
 
 		public Mono<ServerResponse> baz(ServerRequest request) {
-			return ServerResponse.ok().body(fromObject("baz"));
+			return ServerResponse.ok().syncBody("baz");
 		}
 
 		public Mono<ServerResponse> variables(ServerRequest request) {

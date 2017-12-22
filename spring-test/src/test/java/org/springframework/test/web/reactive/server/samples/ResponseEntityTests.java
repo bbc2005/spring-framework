@@ -22,13 +22,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import org.junit.Test;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.web.reactive.server.FluxExchangeResult;
@@ -40,7 +38,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import static java.time.Duration.*;
+import static java.time.Duration.ofMillis;
 import static org.hamcrest.CoreMatchers.endsWith;
 import static org.junit.Assert.*;
 import static org.springframework.http.MediaType.TEXT_EVENT_STREAM;
@@ -53,16 +51,29 @@ import static org.springframework.http.MediaType.TEXT_EVENT_STREAM;
  */
 public class ResponseEntityTests {
 
-	private final WebTestClient client = WebTestClient.bindToController(new PersonController()).build();
+	private final WebTestClient client = WebTestClient.bindToController(new PersonController())
+			.configureClient()
+			.baseUrl("/persons")
+			.build();
 
 
 	@Test
 	public void entity() throws Exception {
-		this.client.get().uri("/persons/John")
+		this.client.get().uri("/John")
 				.exchange()
 				.expectStatus().isOk()
 				.expectHeader().contentType(MediaType.APPLICATION_JSON_UTF8)
-				.expectBody(Person.class).value().isEqualTo(new Person("John"));
+				.expectBody(Person.class).isEqualTo(new Person("John"));
+	}
+
+	@Test
+	public void entityWithConsumer() throws Exception {
+		this.client.get().uri("/John")
+				.exchange()
+				.expectStatus().isOk()
+				.expectHeader().contentType(MediaType.APPLICATION_JSON_UTF8)
+				.expectBody(Person.class)
+				.consumeWith(result -> assertEquals(new Person("John"), result.getResponseBody()));
 	}
 
 	@Test
@@ -71,11 +82,11 @@ public class ResponseEntityTests {
 		List<Person> expected = Arrays.asList(
 				new Person("Jane"), new Person("Jason"), new Person("John"));
 
-		this.client.get().uri("/persons")
+		this.client.get()
 				.exchange()
 				.expectStatus().isOk()
 				.expectHeader().contentType(MediaType.APPLICATION_JSON_UTF8)
-				.expectBody(Person.class).list().isEqualTo(expected);
+				.expectBodyList(Person.class).isEqualTo(expected);
 	}
 
 	@Test
@@ -86,24 +97,21 @@ public class ResponseEntityTests {
 		map.put("Jason", new Person("Jason"));
 		map.put("John", new Person("John"));
 
-		this.client.get().uri("/persons?map=true")
+		this.client.get().uri("?map=true")
 				.exchange()
 				.expectStatus().isOk()
-				.expectBody()
-				.map(String.class, Person.class).isEqualTo(map);
+				.expectBody(new ParameterizedTypeReference<Map<String, Person>>() {}).isEqualTo(map);
 	}
 
 	@Test
 	public void entityStream() throws Exception {
 
 		FluxExchangeResult<Person> result = this.client.get()
-				.uri("/persons")
 				.accept(TEXT_EVENT_STREAM)
 				.exchange()
 				.expectStatus().isOk()
 				.expectHeader().contentType(TEXT_EVENT_STREAM)
-				.expectBody(Person.class)
-				.returnResult();
+				.returnResult(Person.class);
 
 		StepVerifier.create(result.getResponseBody())
 				.expectNext(new Person("N0"), new Person("N1"), new Person("N2"))
@@ -115,8 +123,8 @@ public class ResponseEntityTests {
 
 	@Test
 	public void postEntity() throws Exception {
-		this.client.post().uri("/persons")
-				.body(Mono.just(new Person("John")), Person.class)
+		this.client.post()
+				.syncBody(new Person("John"))
 				.exchange()
 				.expectStatus().isCreated()
 				.expectHeader().valueEquals("location", "/persons/John")
@@ -155,38 +163,6 @@ public class ResponseEntityTests {
 		@PostMapping
 		ResponseEntity<String> savePerson(@RequestBody Person person) {
 			return ResponseEntity.created(URI.create("/persons/" + person.getName())).build();
-		}
-	}
-
-	static class Person {
-
-		private final String name;
-
-		@JsonCreator
-		public Person(@JsonProperty("name") String name) {
-			this.name = name;
-		}
-
-		public String getName() {
-			return this.name;
-		}
-
-		@Override
-		public boolean equals(Object other) {
-			if (this == other) return true;
-			if (other == null || getClass() != other.getClass()) return false;
-			Person person = (Person) other;
-			return getName().equals(person.getName());
-		}
-
-		@Override
-		public int hashCode() {
-			return getName().hashCode();
-		}
-
-		@Override
-		public String toString() {
-			return "Person[name='" + name + "']";
 		}
 	}
 
